@@ -290,6 +290,12 @@ class InputManager {
             const rect = canvas.getBoundingClientRect();
             const scale = rect.width > 0 ? canvas.width / rect.width : 1;
             
+            // 首次触摸预热音频（移动端画布上的 touchstart 会吞掉合成 click，需主动预热）
+            if (!this._audioWarmed) {
+                this._audioWarmed = true;
+                window.game?.audioManager?.warmUp();
+            }
+            
             this.touch.active = true;
             this.touch.hasMoved = true;
             this.touch.startX = this.touch.x = (touch.clientX - rect.left) * scale;

@@ -146,12 +146,16 @@ class GameStateManager {
                 this.showMenu('mainMenu');
                 this.updateMainMenuUI();
                 this.playMenuMusic();
+                // 菜单空闲期允许后台音乐生成
+                AudioManager.getInstance().musicGenPaused = false;
                 break;
                 
             case GameState.PLAYING:
                 this.hideMenu('mainMenu');
                 this.showHUD();
                 this.playGameMusic();
+                // 战斗中暂停后台音乐生成，避免抢占手机 CPU
+                AudioManager.getInstance().musicGenPaused = true;
                 // 添加body class以显示HUD
                 document.body.classList.add('game-playing');
                 break;
@@ -159,12 +163,16 @@ class GameStateManager {
             case GameState.PAUSED:
                 this.showMenu('pauseMenu');
                 this.pauseGameMusic();
+                // 暂停/菜单等空闲状态恢复后台音乐生成
+                AudioManager.getInstance().musicGenPaused = false;
                 break;
                 
             case GameState.GAME_OVER:
                 this.showMenu('gameOverMenu');
                 this.updateGameOverUI(data);
                 this.playGameOverMusic();
+                // 结束界面空闲期允许后台音乐生成
+                AudioManager.getInstance().musicGenPaused = false;
                 break;
                 
             case GameState.SETTINGS:

@@ -12,6 +12,7 @@ class AudioManager {
         this.sounds = new Map();
         this.music = new Map();
         this.musicPromises = new Map(); // 音乐轨道异步生成 Promise 缓存
+        this.musicGenPaused = false;    // 游戏中暂停后台音乐生成（避免抢占手机 CPU）
         
         // 音量设置
         this.masterVolume = 1.0;
@@ -448,6 +449,12 @@ class AudioManager {
                 let offset = 0;
 
                 const step = () => {
+                    // 游戏进行中暂停生成（低频率重试），避免与战斗渲染/音效抢占主线程
+                    if (this.musicGenPaused) {
+                        setTimeout(step, 250);
+                        return;
+                    }
+
                     const end = Math.min(total, offset + chunk);
                     while (offset < end) {
                         const sample = generator.next();
@@ -480,6 +487,49 @@ class AudioManager {
         return promise;
     }
 
+    /**
+     * 播放音效
+     */
+    async playSound(name, volume = 1.0, playbackRate = 1.0) {
+        // 如果音频未初始化，静默跳过（不报错，不阻塞游戏）
+        if (this.isMuted || !this.initialized || !this.audioContext) return;
+        
+        try {
+            // 移动端关键：上下文挂起时直接跳过，避免未播放节点堆积导致卡顿
+            if (this.audioContext.state === 'suspended') {
+                return;
+            }
+
+            await this.resumeAudioContext();
+            
+            const buffer = this.sounds.get(name);
+            if (!buffer) {
+                // 仅在debug模式下显示警告，避免控制台噪音
+                if (window.game && window.game.config && window.game.config.debug) {
+                    console.warn(`音效 ${name} 不存在`);
+                }
+                return;
+            }
+            
+            // 使用音频生成器播放缓冲区
+            if (this.audioGenerator) {
+                this.audioGenerator.playBuffer(
+                    buffer, 
+                    volume * this.sfxVolume * this.masterVolume,
+                    playbackRate
+                );
+            }
+        } catch (error) {
+            // 仅在debug模式下显示警告，避免控制台噪音
+            if (window.game && window.game.config && window.game.config.debug) {
+                console.warn(`播放音效 ${name} 失败:`, error);
+            }
+        }
+    }
+
+    /**
+     * 播放背景音乐
+     */
     async playMusic(name, fadeIn = true) {
         // 如果音频未初始化，静默跳过（不报错，不阻塞游戏）
         if (this.isMuted || !this.initialized || !this.audioContext) return;
