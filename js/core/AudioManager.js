@@ -22,6 +22,7 @@ class AudioManager {
         // 当前播放的音乐
         this.currentMusic = null;
         this.musicFadeInterval = null;
+        this.pendingMusic = null; // 因上下文挂起而待播的音乐（预热后补播）
         
         // 音频上下文（用于高级音频处理）
         this.audioContext = null;
@@ -449,9 +450,9 @@ class AudioManager {
                 let offset = 0;
 
                 const step = () => {
-                    // 游戏进行中暂停生成（低频率重试），避免与战斗渲染/音效抢占主线程
+                    // 游戏进行中降速生成（低优先级滴流），避免与战斗渲染/音效抢占主线程
                     if (this.musicGenPaused) {
-                        setTimeout(step, 250);
+                        setTimeout(step, 150);
                         return;
                     }
 
@@ -490,14 +491,23 @@ class AudioManager {
     /**
      * 播放音效
      */
+    /**
+     * 播放音效
+     */
     async playSound(name, volume = 1.0, playbackRate = 1.0) {
         // 如果音频未初始化，静默跳过（不报错，不阻塞游戏）
         if (this.isMuted || !this.initialized || !this.audioContext) return;
         
         try {
-            // 移动端关键：上下文挂起时直接跳过，避免未播放节点堆积导致卡顿
+            // 挂起时尝试恢复（用户手势内会成功）；限时 300ms，避免无限等待与节点堆积
             if (this.audioContext.state === 'suspended') {
-                return;
+                await Promise.race([
+                    this.audioContext.resume(),
+                    new Promise((resolve) => setTimeout(resolve, 300))
+                ]);
+                if (this.audioContext.state !== 'running') {
+                    return;
+                }
             }
 
             await this.resumeAudioContext();
@@ -535,17 +545,31 @@ class AudioManager {
         if (this.isMuted || !this.initialized || !this.audioContext) return;
         
         try {
-            await this.resumeAudioContext();
-            
+            // 1) 先确保轨道已生成（等待期间解除“游戏中暂停生成”，避免死锁）
+            const prevPaused = this.musicGenPaused;
+            this.musicGenPaused = false;
             let musicData = this.music.get(name);
             if (!musicData) {
-                // 分块异步生成（首次播放某轨道时，UI 保持响应）
                 musicData = await this.createMusicTrackAsync(name);
             }
+            this.musicGenPaused = prevPaused;
             if (!musicData) {
                 console.warn(`背景音乐 ${name} 不存在`);
                 return;
             }
+
+            // 2) 再恢复音频上下文（挂起时限时尝试；失败则记住待播曲目，预热后补播）
+            if (this.audioContext.state === 'suspended') {
+                await Promise.race([
+                    this.audioContext.resume(),
+                    new Promise((resolve) => setTimeout(resolve, 300))
+                ]);
+                if (this.audioContext.state !== 'running') {
+                    this.pendingMusic = { name, fadeIn };
+                    return;
+                }
+            }
+            await this.resumeAudioContext();
             
             // 如果正在播放相同的音乐，不重复播放
             if (this.currentMusic === name && musicData.isPlaying) {
@@ -823,6 +847,13 @@ class AudioManager {
                 gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
                 oscillator.start();
                 oscillator.stop(this.audioContext.currentTime + 0.01);
+            }
+
+            // 预热成功后补播因挂起而延迟的音乐
+            if (this.pendingMusic && this.audioContext && this.audioContext.state === 'running') {
+                const pending = this.pendingMusic;
+                this.pendingMusic = null;
+                this.playMusic(pending.name, pending.fadeIn);
             }
             
             console.log('音频系统预热完成');

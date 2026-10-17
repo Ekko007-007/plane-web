@@ -232,6 +232,27 @@
                 }, 3000);
             }
 
+            // 音频管道诊断（上下文状态 + 音效/音乐缓冲区数量）
+            setTimeout(function () {
+                var am = window.game && window.game.audioManager;
+                postToHost({
+                    type: 'debugAudio',
+                    ctx: am && am.audioContext ? am.audioContext.state : 'none',
+                    sounds: am ? am.sounds.size : -1,
+                    music: am ? am.music.size : -1
+                });
+            }, 2500);
+            // 第二次上报（8 秒）：此时音乐轨道应已生成，验证按需生成链路
+            setTimeout(function () {
+                var am = window.game && window.game.audioManager;
+                postToHost({
+                    type: 'debugAudio',
+                    ctx: am && am.audioContext ? am.audioContext.state : 'none',
+                    sounds: am ? am.sounds.size : -1,
+                    music: am ? am.music.size : -1
+                });
+            }, 8000);
+
             // 移动端模式 + 自动开局：模拟触摸拖动，验证触屏控制链路（战机跟随触摸点）
             if (params.get('mobile') === '1' && params.get('autostart') === '1') {
                 setTimeout(function () {
